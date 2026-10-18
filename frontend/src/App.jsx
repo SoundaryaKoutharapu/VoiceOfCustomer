@@ -1,14 +1,31 @@
-
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ResponsiveContainer, PieChart, Pie, Cell, Tooltip as ChartTooltip,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend
+  BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from 'recharts';
 import './App.css';
 
 const COLORS = { Positive: '#63866b', Neutral: '#d4d9cf', Negative: '#c8755f' };
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+
+const STORAGE_KEYS = {
+  reviews: 'voc_reviews_v3',
+  fileName: 'voc_filename_v3',
+  aiResult: 'voc_ai_result_v3',
+};
+
+const SAMPLE_CSV = `Customer,Date,Rating,Review
+Aarav Sharma,2026-10-01,5,"Absolutely love the build quality! Arrived two days early and setup took less than five minutes."
+Priya Nair,2026-10-02,2,"Delivery was delayed by a full week and tracking link never updated. Very frustrating experience."
+Rohan Verma,2026-10-03,5,"Customer support agent was super helpful and resolved my billing issue on the first call."
+Sneha Patel,2026-10-04,1,"Product arrived damaged with a cracked casing. Return process is confusing and slow."
+Vikram Singh,2026-10-05,4,"Great value for the price. Interface is easy to use, though dark mode would be a nice addition."
+Ananya Gupta,2026-10-06,2,"Too expensive for what it offers. The app keeps freezing whenever I try to export reports."
+Karthik Rao,2026-10-07,5,"Best purchase I have made this year! Smooth performance, reliable quality, and friendly service."
+Meera Iyer,2026-10-08,3,"Decent product overall. Quality is okay for the cost, but shipping packaging could be sturdier."
+Devansh Joshi,2026-10-09,1,"Requested a refund ten days ago and still no response from customer support. Terrible service."
+Nisha Menon,2026-10-10,5,"Impressive design and very comfortable to use daily. Highly recommend to small teams!"`;
 
 const NAV = [
   { id: 'overview', label: 'Overview', icon: '▦' },
@@ -77,7 +94,7 @@ function parseCSV(text) {
   const nameIndex = find(['name', 'customer', 'customername', 'author', 'username', 'reviewer']);
 
   if (reviewIndex < 0) {
-    throw new Error('Could not find a review text column. Use a header such as review, text, comment, or feedback.');
+    throw new Error('Could not find a review column. Use a column header named Review, Text, Comment, or Feedback.');
   }
 
   return rows.map((r, i) => ({
@@ -195,35 +212,102 @@ function SentimentBadge({ sentiment }) {
   );
 }
 
-function EmptyState({ onUpload }) {
+function EmptyState({ onUpload, onDownloadSample }) {
   return (
     <div className="empty-state">
-      <div className="empty-icon">✳</div>
-      <h2>Turn customer feedback into clear next steps.</h2>
-      <p>
+      <div className="empty-icon">
+        <div className="brand-mark" style={{ margin: 0 }}><span /><span /><span /></div>
+      </div>
+
+      <h2 style={{ fontSize: '28px', marginBottom: '4px' }}>
+        Turn customer feedback into clear next steps.
+      </h2>
+
+      <p style={{ fontSize: '14px', maxWidth: '480px', lineHeight: 1.7 }}>
         Upload a CSV of customer reviews to explore sentiment, recurring themes,
-        priority issues, and actionable insights. CSV parsing happens in your browser;
-        AI insights are requested only when you choose to generate them.
+        priority issues, and actionable AI insights.
       </p>
-      <button className="primary-button" onClick={onUpload}>↑ Upload review data</button>
-      <span className="empty-hint">CSV files up to 5 MB · Your raw file stays in this browser</span>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'center', marginTop: '6px' }}>
+        <button className="primary-button" style={{ minHeight: '42px', padding: '0 20px', fontSize: '13.5px' }} onClick={onUpload}>
+          ↑ Upload review data
+        </button>
+        <button className="secondary-button" style={{ minHeight: '42px', padding: '0 18px', fontSize: '13.5px' }} onClick={onDownloadSample}>
+          ↓ Download sample CSV
+        </button>
+      </div>
+
+      <span className="empty-hint" style={{ fontSize: '12.5px', marginTop: '16px', maxWidth: '480px', lineHeight: 1.6 }}>
+        CSV columns: <strong>Customer, Date, Rating (1–5), Review</strong> · Up to 50 reviews per AI run
+      </span>
     </div>
   );
 }
 
 export default function App() {
-  const [reviews, setReviews] = useState([]);
-  const [fileName, setFileName] = useState('');
+  const [reviews, setReviews] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.reviews);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [fileName, setFileName] = useState(() => {
+    return localStorage.getItem(STORAGE_KEYS.fileName) || '';
+  });
+
+  const [aiResult, setAiResult] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.aiResult);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
   const [activePage, setActivePage] = useState('overview');
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [sentimentFilter, setSentimentFilter] = useState('All sentiments');
   const [themeFilter, setThemeFilter] = useState('All themes');
   const [sortBy, setSortBy] = useState('priority');
-  const [aiResult, setAiResult] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState('');
   const fileInput = useRef(null);
+
+  useEffect(() => {
+    try {
+      if (reviews.length) {
+        localStorage.setItem(STORAGE_KEYS.reviews, JSON.stringify(reviews));
+      } else {
+        localStorage.removeItem(STORAGE_KEYS.reviews);
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }, [reviews]);
+
+  useEffect(() => {
+    if (fileName) {
+      localStorage.setItem(STORAGE_KEYS.fileName, fileName);
+    } else {
+      localStorage.removeItem(STORAGE_KEYS.fileName);
+    }
+  }, [fileName]);
+
+  useEffect(() => {
+    try {
+      if (aiResult) {
+        localStorage.setItem(STORAGE_KEYS.aiResult, JSON.stringify(aiResult));
+      } else {
+        localStorage.removeItem(STORAGE_KEYS.aiResult);
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }, [aiResult]);
 
   const stats = useMemo(() => {
     const total = reviews.length;
@@ -322,6 +406,19 @@ export default function App() {
   };
 
   const uploadClick = () => fileInput.current?.click();
+
+  const downloadSample = () => {
+    downloadFile('sample-customer-reviews.csv', SAMPLE_CSV);
+  };
+
+  const clearLoadedFile = () => {
+    setReviews([]);
+    setFileName('');
+    setAiResult(null);
+    setAiError('');
+    setError('');
+    setActivePage('overview');
+  };
 
   const runAI = async () => {
     setAiLoading(true);
@@ -443,11 +540,13 @@ export default function App() {
 
           <div className="topbar-actions">
             {fileName && (
-              <span className="loaded-file" title={fileName}>▤ {fileName}</span>
+              <>
+                <span className="loaded-file" title={fileName}>▤ {fileName}</span>
+                <button className="secondary-button" onClick={clearLoadedFile}>
+                  × Clear file
+                </button>
+              </>
             )}
-            <button className="primary-button top-upload" onClick={uploadClick}>
-              ↑ <span>{reviews.length ? 'Upload new CSV' : 'Upload CSV'}</span>
-            </button>
           </div>
         </header>
 
@@ -460,7 +559,7 @@ export default function App() {
           )}
 
           {!reviews.length ? (
-            <EmptyState onUpload={uploadClick} />
+            <EmptyState onUpload={uploadClick} onDownloadSample={downloadSample} />
           ) : (
             <>
               {activePage === 'overview' && (
@@ -620,15 +719,15 @@ export default function App() {
                               <XAxis
                                 type="number"
                                 allowDecimals={false}
-                                tick={{ fontSize: 9, fill: '#92998f' }}
+                                tick={{ fontSize: 11, fill: '#92998f' }}
                                 axisLine={false}
                                 tickLine={false}
                               />
                               <YAxis
                                 type="category"
                                 dataKey="name"
-                                width={112}
-                                tick={{ fontSize: 9, fill: '#737d71' }}
+                                width={125}
+                                tick={{ fontSize: 11, fill: '#737d71' }}
                                 axisLine={false}
                                 tickLine={false}
                               />
@@ -637,7 +736,7 @@ export default function App() {
                                 dataKey="Reviews"
                                 fill="#9eb59a"
                                 radius={[0, 4, 4, 0]}
-                                barSize={13}
+                                barSize={15}
                               />
                             </BarChart>
                           </ResponsiveContainer>
@@ -943,7 +1042,7 @@ export default function App() {
                                     <span className="rating-stars">
                                       {'★'.repeat(Math.round(r.rating))}
                                       <span className="rating-empty">
-                                        {'★'.repeat(5 - Math.round(r.rating))}
+                                        {'★'.repeat(Math.max(0, 5 - Math.round(r.rating)))}
                                       </span>
                                       {' '}<small>{r.rating}</small>
                                     </span>
